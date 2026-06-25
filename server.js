@@ -20,14 +20,6 @@ const MODELS = {
 };
 const MODEL = MODELS[PROVIDER];
 
-let promptTemplate;
-try {
-    promptTemplate = fs.readFileSync('prompt.md', 'utf8');
-} catch (error) {
-    console.error('Error reading prompt.md:', error);
-    process.exit(1);
-}
-
 const OPENAI_API_ENDPOINT = 'https://api.openai.com/v1/chat/completions';
 const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models/';
 
@@ -58,6 +50,7 @@ app.post('/api/', async (req, res) => {
         }
 
         // prompt.md のテンプレート変数 ${key} をリクエストの値で置換する
+        const promptTemplate = fs.readFileSync('prompt.md', 'utf8');
         const finalPrompt = fillTemplate(promptTemplate, variables);
 
         let result;
