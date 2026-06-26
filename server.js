@@ -5,6 +5,7 @@ require('dotenv').config({ path: '.env.local' });
 
 const app = express();
 const PORT = process.env.PORT || 8080;
+const BOARDGAME_DB_PATH = 'data/boardgames.json';
 
 app.use(express.json());
 app.use(express.static('public'));
@@ -28,6 +29,39 @@ app.get('/api/pages', (req, res) => {
     const files = fs.readdirSync('public')
         .filter(name => name.endsWith('.html') && name !== 'index.html');
     res.json(files);
+});
+
+app.get('/api/boardgames', (req, res) => {
+    res.json(loadBoardGames());
+});
+
+app.post('/api/boardgames/recommend', (req, res) => {
+    try {
+        const { players, playTime, difficulty, description = '', count = 5 } = req.body;
+        const playerCount = Number(players);
+        const maxResults = clampInteger(Number(count), 1, 10, 5);
+
+        if (!Number.isInteger(playerCount) || playerCount < 1) {
+            return res.status(400).json({ error: 'players must be a positive integer' });
+        }
+
+        const recommendations = recommendBoardGames({
+            games: loadBoardGames(),
+            players: playerCount,
+            playTime,
+            difficulty,
+            description,
+            count: maxResults,
+        });
+
+        res.json({
+            title: 'ボードゲーム推薦',
+            data: recommendations,
+        });
+    } catch (error) {
+        console.error('Board game recommendation error:', error);
+        res.status(500).json({ error: 'Failed to recommend board games. Please try again.' });
+    }
 });
 
 // 問題数の上限（過剰なリクエストでトークンを浪費しないようにする）
@@ -81,6 +115,130 @@ function fillTemplate(template, variables) {
             ? String(variables[key])
             : match; // 対応する値がなければそのまま残す
     });
+}
+
+function loadBoardGames() {
+    const raw = fs.readFileSync(BOARDGAME_DB_PATH, 'utf8');
+    return JSON.parse(raw);
+}
+
+function clampInteger(value, min, max, fallback) {
+    if (!Number.isInteger(value)) {
+        return fallback;
+    }
+    return Math.min(Math.max(value, min), max);
+}
+
+function recommendBoardGames({ games, players, playTime, difficulty, description, count }) {
+    const timeRange = parsePlayTimeRange(playTime);
+    const targetDifficulty = parseDifficultyLevel(difficulty);
+    const requestedTags = extractRequestedTags(description);
+
+    const strictMatches = games.filter((game) => players >= game.minPlayers && players <= game.maxPlayers);
+    const candidates = strictMatches.length > 0 ? strictMatches : games;
+
+    return candidates
+        .map((game) => ({
+            ...game,
+            score: scoreBoardGame(game, {
+                players,
+                timeRange,
+                targetDifficulty,
+                requestedTags,
+                strictPlayerMatch: strictMatches.length > 0,
+            }),
+        }))
+        .sort((a, b) => b.score - a.score || a.maxMinutes - b.maxMinutes || a.title.localeCompare(b.title, 'ja'))
+        .filter((game, index, sortedGames) => sortedGames.findIndex((item) => item.title === game.title) === index)
+        .slice(0, count)
+        .map(({ minPlayers, maxPlayers, minMinutes, maxMinutes, difficultyLevel, tags, score, ...game }) => game);
+}
+
+function parsePlayTimeRange(playTime) {
+    const ranges = {
+        '15〜30分': [15, 30],
+        '30〜60分': [30, 60],
+        '60〜120分': [60, 120],
+        '2時間以上': [120, 240],
+    };
+    return ranges[playTime] || [0, 240];
+}
+
+function parseDifficultyLevel(difficulty) {
+    const levels = {
+        '初心者向け': 1,
+        '中級者向け': 2,
+        '上級者向け': 3,
+    };
+    return levels[difficulty] || null;
+}
+
+function extractRequestedTags(description) {
+    const text = String(description || '').toLowerCase();
+    const tagRules = [
+        ['cooperative', ['協力', 'みんなで', '全員', 'チーム']],
+        ['conversation', ['会話', '話', '盛り上', '雑談', 'コミュニケーション']],
+        ['party', ['パーティ', '大人数', '飲み', '軽い', 'わいわい']],
+        ['strategy', ['戦略', '考える', 'じっくり', '頭を使う']],
+        ['low-luck', ['運要素が少ない', '運少なめ', '実力', '読み合い']],
+        ['deduction', ['推理', '正体', 'ミステリー', '犯人']],
+        ['bluff', ['ブラフ', '嘘', 'だます', '心理戦']],
+        ['two-player', ['2人', '二人', '夫婦', 'カップル', '対戦']],
+        ['kids', ['子供', 'こども', '家族', '小学生']],
+        ['short', ['短時間', 'すぐ', '軽め', '簡単']],
+        ['long', ['長時間', '重め', '本格']],
+        ['solo', ['1人', '一人', 'ソロ']],
+    ];
+
+    return tagRules
+        .filter(([, keywords]) => keywords.some((keyword) => text.includes(keyword)))
+        .map(([tag]) => tag);
+}
+
+function scoreBoardGame(game, { players, timeRange, targetDifficulty, requestedTags, strictPlayerMatch }) {
+    let score = 0;
+
+    if (players >= game.minPlayers && players <= game.maxPlayers) {
+        score += 100;
+        if (players === game.minPlayers || players === game.maxPlayers) {
+            score += 4;
+        }
+    } else if (!strictPlayerMatch) {
+        score -= Math.min(Math.abs(players - game.minPlayers), Math.abs(players - game.maxPlayers)) * 12;
+    }
+
+    const overlap = Math.min(game.maxMinutes, timeRange[1]) - Math.max(game.minMinutes, timeRange[0]);
+    if (overlap >= 0) {
+        score += 35 + overlap;
+    } else {
+        const distance = Math.min(
+            Math.abs(game.minMinutes - timeRange[1]),
+            Math.abs(timeRange[0] - game.maxMinutes)
+        );
+        score -= distance;
+    }
+
+    if (targetDifficulty) {
+        const difficultyDistance = Math.abs(game.difficultyLevel - targetDifficulty);
+        score += difficultyDistance === 0 ? 30 : -difficultyDistance * 14;
+    } else {
+        score += game.difficultyLevel === 1 ? 8 : 0;
+    }
+
+    requestedTags.forEach((tag) => {
+        if (game.tags.includes(tag)) {
+            score += 18;
+        }
+    });
+
+    if (requestedTags.includes('short') && game.maxMinutes <= 30) {
+        score += 14;
+    }
+    if (requestedTags.includes('long') && game.minMinutes >= 60) {
+        score += 14;
+    }
+
+    return score;
 }
 
 async function callOpenAI(prompt) {

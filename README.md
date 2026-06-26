@@ -8,6 +8,7 @@ A flexible Node.js web API that allows you to create LLM-powered applications by
 - 📝 **Markdown Prompts**: Define your application logic in `prompt.md`
 - 🔄 **Variable Substitution**: Automatic replacement of `${variable}` placeholders
 - 🤖 **Multi-Provider**: Supports OpenAI and Google Gemini
+- 🎲 **Local Board Game DB**: Board game recommendations can run from `data/boardgames.json` without calling an LLM each time
 - ⚡ **No Code Changes**: Switch between applications by editing `prompt.md`
 
 ## Quick Start
@@ -66,9 +67,12 @@ Visit `http://localhost:8080`
 ### Architecture
 
 ```
-Client (quiz.html) → POST /api/ → server.js → LLM → Response
-                                     ↓
-                              prompt.md (template)
+Client (quiz.html) → POST /api/boardgames/recommend → server.js → data/boardgames.json
+
+Other LLM apps:
+Client → POST /api/ → server.js → LLM → Response
+                           ↓
+                    prompt.md (template)
 ```
 
 ### Variable Substitution
@@ -109,6 +113,44 @@ Format: JSON array
 {
   "title": "My Quiz",
   "data": [...]
+}
+```
+
+### Board Game Recommendation API
+
+**GET** `/api/boardgames`
+
+Returns all board games from the local database.
+
+**POST** `/api/boardgames/recommend`
+
+Uses `data/boardgames.json` and a local scoring function. It does not call OpenAI or Gemini.
+
+**Request Body:**
+```json
+{
+  "players": 4,
+  "playTime": "30〜60分",
+  "difficulty": "初心者向け",
+  "description": "会話が盛り上がるもの",
+  "count": 5
+}
+```
+
+**Response:**
+```json
+{
+  "title": "ボードゲーム推薦",
+  "data": [
+    {
+      "title": "コードネーム",
+      "players": "4〜8人",
+      "playTime": "約15〜30分",
+      "difficulty": "初心者向け",
+      "genre": "チーム戦・言葉遊び",
+      "description": "..."
+    }
+  ]
 }
 ```
 
@@ -175,6 +217,8 @@ Provide:
 generic-webapi/
 ├── server.js          # Generic API server (no changes needed)
 ├── prompt.md          # Application-specific prompt template
+├── data/
+│   └── boardgames.json # Local board game recommendation database
 ├── package.json       # Dependencies
 ├── .env.example       # Environment variables template
 ├── public/            # Static files

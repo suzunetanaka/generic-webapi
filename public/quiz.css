@@ -166,26 +166,6 @@
     font-weight: 800;
 }
 
-.search-btn {
-    margin-top: 16px;
-    border: 2px solid #243042;
-    border-radius: 8px;
-    padding: 9px 12px;
-    background: #4ecdc4;
-    color: #243042;
-    font-size: 14px;
-    font-weight: 800;
-    cursor: pointer;
-    box-shadow: 0 4px 0 #243042;
-}
-
-.search-btn:hover,
-.search-btn:focus {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 0 #243042;
-    outline: none;
-}
-
 @media (max-width: 768px) {
     .recommend-container {
         padding: 20px;
